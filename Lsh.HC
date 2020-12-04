@@ -7,7 +7,7 @@
 #define AUTOCOMPLETE_MAX_RESULTS 15
 
 #define HIST_FILE_PATH		"~/LshHistory.TXT.Z"
-#define HIST_MAX_ENTRIES	100
+#define HIST_MAX_ENTRIES	100
 #define HIST_MAX_LINE_LEN	100
 
 // -------------------------------------
@@ -23,6 +23,24 @@
 // The head is decremented, wrapping around to the top of
 // the buffer when needed.
 
+Bool IsPureWhitespace(U8 *str) {
+  I64 i;
+  Bool is_pure_whitespace = TRUE;
+
+  for (i=0; i<StrLen(str); i++) {
+    switch (str[i]) {
+      case ' ':
+      case 31:  // Shift-space.
+      case '\t':
+        break;
+      default:
+        is_pure_whitespace = FALSE;
+        goto terminate;
+    }
+  }
+  terminate:
+  return is_pure_whitespace;
+}
 
 I64 WrapI64(I64 n, I64 max) {
   // Wraps `n` around `max` in either direction. 
@@ -52,14 +70,15 @@ U0 HistoryPush(History *h, U8 *line) {
   // Don't push very long lines.
 
   if (line[0] != NULL
+    && !IsPureWhitespace(line)
     && StrCmp(line, HistoryGet(h, 0))
     && StrLen(line) < HIST_MAX_LINE_LEN) {
 
     I64 final_index = WrapI64(h->head - 1, HIST_MAX_ENTRIES);
 
     // Free last entry in queue before it's written over.
-    if (h->buff[final_index] != NULL)
-      Free(h->buff[final_index]);
+    // NULLs freeable in HolyC.
+    Free(h->buff[final_index]);
 
     // Update index and push entry.
     h->head = final_index; 
@@ -101,8 +120,8 @@ U0 HistoryInit(History *h) {
 
     I64 last_newline_index = 0;
 
-    for (i=0; i<MinI64(StrLen(prev_hist),HIST_MAX_LINE_LEN); i++) {
-      if (prev_hist[i] == '\n') {
+    for (i=0; i<StrLen(prev_hist); i++) {
+      if (prev_hist[i] == '\n' || prev_hist[i+1] == NULL) {
           last_newline_index = i + 1;
           HistoryPush(h, line);
           MemSet(line, 0, sizeof(line));
@@ -129,9 +148,8 @@ U0 HistorySave(History *h) {
   U8 *str_buff = CAlloc(str_buff_len * sizeof(U8));
   for (i=0; i<HIST_MAX_ENTRIES; i++) {
     U8 *entry = HistoryGet(h, HIST_MAX_ENTRIES-(i+1));
-    if (entry != NULL) {
+    if (entry != NULL)
       StrPrint(str_buff, "%s%s\n", str_buff, entry);
-    }
   }
 
   FileWrite(HIST_FILE_PATH, str_buff, str_buff_len);
@@ -247,7 +265,7 @@ I64 Tokenize(U8* str, U8** tokens) {
   Bool started = FALSE;
 
   while (*str) {
-    if (*str == ' ') {
+    if (*str == ' ' || *str == 31) { // 31 = shift-space.
       if (started) {
         *str = 0;
         started = FALSE;
