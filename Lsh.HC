@@ -7,12 +7,12 @@
 #define AUTOCOMPLETE_MAX_RESULTS 15
 
 #define HIST_FILE_PATH		"~/LshHistory.TXT.Z"
-#define HIST_MAX_ENTRIES	30
+#define HIST_MAX_ENTRIES	100
 #define HIST_MAX_LINE_LEN	100
 
 // -------------------------------------
 // History
-
+//
 // Command history is stored as pointers to MAlloc'd
 // strings in a circular buffer. This allows for efficient
 // pushing of new entries, as well as simple freeing of
@@ -35,7 +35,10 @@ class History {
   U8 *buff[HIST_MAX_ENTRIES];
 };
 
+
 U8 *HistoryGet(History *h, I64 index) {
+  // Get history at index relative to head.
+
   if (index == -1)
     return "";
 
@@ -64,6 +67,20 @@ U0 HistoryPush(History *h, U8 *line) {
     StrCpy(h->buff[h->head], line);
   }
   h->index = -1;
+}
+
+Bool HistoryMoveIndex(History *h, I64 n) {
+  // Moves the history index up or down, stopping at the
+  // start and end of history.
+
+  I64 potential_index = ClampI64(h->index+n, -1, HIST_MAX_ENTRIES-1);
+
+  if (HistoryGet(h, potential_index) != NULL) {
+    h->index = potential_index;
+    return TRUE;
+  } else {
+    return FALSE;
+  }
 }
 
 U0 HistoryInit(History *h) {
@@ -96,6 +113,31 @@ U0 HistoryInit(History *h) {
   }
 }
 
+U0 HistorySave(History *h) {
+  // Save history to disk. Newest commands last.
+
+  I64 i;
+
+  // Get strbuff length. Save room for newlines and NULL.
+  I64 str_buff_len = 1;
+  for (i=0; i<HIST_MAX_ENTRIES; i++) {
+    if (h->buff[i] != NULL)
+      str_buff_len += StrLen(h->buff[i]) + 1;
+  }
+
+  // Build str.
+  U8 *str_buff = CAlloc(str_buff_len * sizeof(U8));
+  for (i=0; i<HIST_MAX_ENTRIES; i++) {
+    U8 *entry = HistoryGet(h, HIST_MAX_ENTRIES-(i+1));
+    if (entry != NULL) {
+      StrPrint(str_buff, "%s%s\n", str_buff, entry);
+    }
+  }
+
+  FileWrite(HIST_FILE_PATH, str_buff, str_buff_len);
+  Free(str_buff);
+}
+
 U0 HistoryFree(History *h) {
   // Free history buffer.
   // Note: NULL ptrs are freeable in HolyC.
@@ -103,45 +145,6 @@ U0 HistoryFree(History *h) {
   I64 i;
   for (i=0; i<HIST_MAX_ENTRIES; i++) {
     Free(h->buff[i]);
-  }
-}
-
-U0 HistorySave(History *h) {
-  // Save history to disk.
-  I64 i;
-
-  // Get str len first so only one alloc needed.
-  // Leave room for the newlines that will be added
-  // after every line, and for the final NULL.
-  I64 hist_str_len = 1;
-  for (i=HIST_MAX_ENTRIES-1; i>=0; i--) {
-    if (h->buff[i] != NULL) {
-      hist_str_len += StrLen(h->buff[i]) + 1;
-    }
-  }
-
-  U8 *str_buff = CAlloc(hist_str_len * sizeof(U8));
-  for (i=HIST_MAX_ENTRIES-1; i>=0; i--) {
-    if (h->buff[i] != NULL) {
-      StrPrint(str_buff, "%s%s\n", str_buff, h->buff[i]);
-    }
-  }
-
-  FileWrite(HIST_FILE_PATH, str_buff, hist_str_len);
-  Free(str_buff);
-}
-
-Bool HistoryMoveIndex(History *h, I64 n) {
-  // Moves the history index up or down, stopping at the
-  // start and end of history.
-
-  I64 potential_index = ClampI64(h->index+n, -1, HIST_MAX_ENTRIES-1);
-
-  if (HistoryGet(h, potential_index) != NULL) {
-    h->index = potential_index;
-    return TRUE;
-  } else {
-    return FALSE;
   }
 }
 
@@ -166,7 +169,7 @@ show_prompt:
     I64 ch = GetKey(&scan, FALSE, FALSE);
 
     if (ch == CH_BACKSPACE) {
-      if (len > 0) {
+      if (len > 0) {
         '' CH_BACKSPACE;
         --len;
       }
@@ -642,5 +645,4 @@ U0 Lsh() {
   HistoryFree(history);
   "$FG$\n";
 }
-
 
