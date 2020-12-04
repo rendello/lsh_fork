@@ -6,42 +6,96 @@
 
 #define AUTOCOMPLETE_MAX_RESULTS 15
 
+// Max history entries.
+#define HIST_MAX	30
+
 // -------------------------------------
 // History
 
-class histent {
-  histent*  next;
-  U8        text[0];
-};
+// Command history is stored as pointers to MAlloc'd
+// strings in a circular buffer. This allows for efficient
+// pushing of new entries, as well as simple freeing of
+// old entries.
+//
+// A new entry is added right-to-left. Before it's added, the
+// oldest entry is freed and then replaced with the new entry.
+// The head is decremented, wrapping around to the top of
+// the buffer when needed.
 
-histent* history;
 
-Bool LoadHistory() {
-  history = NULL;
-  return TRUE;
+I64 WrapI64(I64 n, I64 max) {
+  // Wraps `n` around `max` in either direction. 
+  return ((n % max) + max) % max;
 }
 
-U0 HistoryPush(U8* line) {
-  if (!line[0])
-    return;
 
-  if (history && !StrCmp(history->text, line))
-    return;
+class History {
+  I64 index;	// Temp index for user.
+  I64 head;	// Start of circular buff.
+  U8 *buff[HIST_MAX];
+};
 
-  I64 len = StrLen(line);
-  histent* ent = MAlloc(sizeof(histent) + len + 1);
-  StrCpy(ent->text, line);
-  ent->next = history;
-  history = ent;
+
+U0 HistoryInit(History *h) {
+  I64 i;
+  h->index = -1;
+  h->head = 0;
+  for (i=0; i<HIST_MAX; i++) {
+    h->buff[i] = NULL;
+  }
+}
+
+
+U8 *HistoryGet(History *h, I64 index) {
+  if (index == -1)
+    return "";
+
+  I64 i = WrapI64(h->head + index, HIST_MAX);
+
+  return h->buff[i];
+}
+
+
+Bool HistoryMoveIndex(History *h, I64 n) {
+  // Moves the history index up or down, stopping at the
+  // start and end of history.
+
+  I64 potential_index = ClampI64(h->index+n, -1, HIST_MAX-1);
+
+  if (HistoryGet(h, potential_index) != NULL) {
+    h->index = potential_index;
+    return TRUE;
+  } else {
+    return FALSE;
+  }
+}
+
+
+U0 HistoryPush(History *h, U8 *line) {
+
+  if (line[0] != NULL && StrCmp(line, HistoryGet(h, 0))) {
+
+    I64 final_index = WrapI64(h->head - 1, HIST_MAX);
+
+    // Free last entry in queue before it's written over.
+    if (h->buff[final_index] != NULL)
+      Free(h->buff[final_index]);
+
+    // Update index and push entry.
+    h->head = final_index; 
+    h->buff[h->head] = MAlloc(StrLen(line)+1);
+    StrCpy(h->buff[h->head], line);
+  }
+  h->index = -1;
 }
 
 // -------------------------------------
 // Line input
 
-U8* ReadLine(U8* prompt, I64 (*autocomplete)(U8* buffer) = NULL) {
-  static U8 buf[256];
+U8* ReadLine(U8* prompt, I64 (*autocomplete)(U8* buffer) = NULL,
+	History *history) {
+  static U8 buf[256];
   I64 len = 0;
-  histent* hist = history;
 
   buf[0] = 0;
 
@@ -64,7 +118,7 @@ show_prompt:
     else if (ch == CH_ESC) {
       len = 0;
       buf[len] = 0;
-
+      history->index = -1;
       EdLineDel(DocPut);
       goto show_prompt;
     }
@@ -96,11 +150,19 @@ show_prompt:
       goto show_prompt;
     }
     else if (ch == 0 && scan.u8[0] == SC_CURSOR_UP) {
-      if (hist) {
-        StrCpy(buf, hist->text);
-        len = StrLen(buf);
-        hist = hist->next;
+      if (HistoryMoveIndex(history, +1)) {
+        StrCpy(buf, HistoryGet(history, history->index));
 
+        len = StrLen(buf);
+        EdLineDel(DocPut);
+        goto show_prompt;
+      }
+    }
+    else if (ch == 0 && scan.u8[0] == SC_CURSOR_DOWN) {
+      if (HistoryMoveIndex(history, -1)) {
+        StrCpy(buf, HistoryGet(history, history->index));
+
+        len = StrLen(buf);
         EdLineDel(DocPut);
         goto show_prompt;
       }
@@ -442,7 +504,7 @@ U0 Intro() {
   "$FG,1$- $FG,0$Esc$FG,1$ deletes line\n"
   "$FG,1$- $FG,0$Tab$FG,1$ auto-completes paths\n"
   "$FG,1$- $FG,0$Shift-Esc$FG,1$ quits\n"
-  "$FG,1$- $FG,0$Up Arrow$FG,1$ recalls previous commands\n"
+  "$FG,1$- $FG,0$Up/Down Arrows$FG,1$ cycle through previous commands\n"
   "\n";
 }
 
@@ -494,7 +556,10 @@ U0 ParseAndExecute(U8* line) {
 
 U0 Lsh() {
   PatchFont();
-  LoadHistory();
+
+  History history_v;
+  History *history = &history_v;  
+  HistoryInit(history);
 
   if (!skip_intro) {
     "$FG,8$Welcome to $FG,5$Lambda Shell$FG,8$!\n";
@@ -503,12 +568,12 @@ U0 Lsh() {
 
   while (1) {
     U8* p = Prompt();
-    U8* line = ReadLine(p, &Autocomplete);
+    U8* line = ReadLine(p, &Autocomplete, history);
 
     if (!line || !StrCmp(line, "exit"))
       break;
 
-    HistoryPush(line);
+    HistoryPush(history, line);
 
     try {
       ParseAndExecute(line);
@@ -520,3 +585,5 @@ U0 Lsh() {
 
   "$FG$\n";
 }
+
+
