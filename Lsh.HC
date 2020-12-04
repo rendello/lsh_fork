@@ -4,28 +4,51 @@
 #define LAMBDA "\xFB"
 #define LAMBDA_CHARCODE 0xFB
 
+#define MAX_LINE_LEN	300
 #define AUTOCOMPLETE_MAX_RESULTS 15
 
 #define HIST_FILE_PATH		"~/LshHistory.TXT.Z"
 #define HIST_MAX_ENTRIES	100
-#define HIST_MAX_LINE_LEN	100
 
 // -------------------------------------
-// History
-//
-// Command history is stored as pointers to MAlloc'd
-// strings in a circular buffer. This allows for efficient
-// pushing of new entries, as well as simple freeing of
-// old entries.
-//
-// A new entry is added right-to-left. Before it's added, the
-// oldest entry is freed and then replaced with the new entry.
-// The head is decremented, wrapping around to the top of
-// the buffer when needed.
+//History
+/*
+$TR,"History overview"$
+$ID,2$Command history is stored as pointers to MAlloc'd
+strings in a circular buffer. This allows for efficient
+pushing of new entries, as well as simple freeing of
+old entries.
+
+A new entry is added right-to-left. Before it's added, the
+oldest entry is freed and then replaced with the new entry.
+The head is decremented, wrapping around to the top of
+the buffer when needed.
+
+The history `index` simply represents the offset from the
+head while the user cycles through history with up/down. It
+isn't inherent to the buffer itself, it's just a value
+that, when moved with `HistoryMoveIndex`, won't go over the
+bounds of the history. It's reset on pushing or pressing esc.
+
+History is saved to/loaded from HIST_FILE_PATH, newest
+commands last.
+
+$ID,-2$$TR,"Relative history"$
+$ID,2$When a user already has a partial string in their line buffer,
+pressing up/down will jump to the next/last entry that starts
+with that substring.
+
+Currently, it uses a basic O(n) search for moving up and down,
+although this could be improved with a light buffering system
+that saves the indexes as integers.
+
+Since moving up/down in history will necessarily replace the
+current line buffer, the `seek_str` stores the original.
+
+$ID,-2$*/
 
 Bool IsPureWhitespace(U8 *str) {
   I64 i;
-  Bool is_pure_whitespace = TRUE;
 
   for (i=0; i<StrLen(str); i++) {
     switch (str[i]) {
@@ -34,23 +57,23 @@ Bool IsPureWhitespace(U8 *str) {
       case '\t':
         break;
       default:
-        is_pure_whitespace = FALSE;
-        goto terminate;
+        return FALSE;
     }
   }
-  terminate:
-  return is_pure_whitespace;
+  return TRUE;
 }
 
 I64 WrapI64(I64 n, I64 max) {
-  // Wraps `n` around `max` in either direction. 
+  // Wraps `n` around zero and `max`. 
   return ((n % max) + max) % max;
 }
 
 class History {
   I64 index;	// Temp index for user.
   I64 head;	// Start of circular buff.
+  I64 used;	// Elements filled.
   U8 *buff[HIST_MAX_ENTRIES];
+  U8 seek_str[MAX_LINE_LEN+1];
 };
 
 
@@ -65,6 +88,12 @@ U8 *HistoryGet(History *h, I64 index) {
   return h->buff[i];
 }
 
+U0 HistoryResetCursor(History *h) {
+  h->index = -1;
+//  h->seek_str[0] = NULL;
+  MemSet(h->seek_str, NULL, (MAX_LINE_LEN+1)*sizeof(U8));
+}
+
 U0 HistoryPush(History *h, U8 *line) {
   // Push entry and update history.
   // Don't push very long lines.
@@ -72,20 +101,21 @@ U0 HistoryPush(History *h, U8 *line) {
   if (line[0] != NULL
     && !IsPureWhitespace(line)
     && StrCmp(line, HistoryGet(h, 0))
-    && StrLen(line) < HIST_MAX_LINE_LEN) {
+    && StrLen(line) < MAX_LINE_LEN) {
 
     I64 final_index = WrapI64(h->head - 1, HIST_MAX_ENTRIES);
 
     // Free last entry in queue before it's written over.
-    // NULLs freeable in HolyC.
+    // NULL is freeable in HolyC.
     Free(h->buff[final_index]);
 
     // Update index and push entry.
     h->head = final_index; 
     h->buff[h->head] = MAlloc(StrLen(line)+1);
     StrCpy(h->buff[h->head], line);
+    h->used = ClampI64(h->used+1, 0, HIST_MAX_ENTRIES);
   }
-  h->index = -1;
+  HistoryResetCursor(h);
 }
 
 Bool HistoryMoveIndex(History *h, I64 n) {
@@ -104,18 +134,19 @@ Bool HistoryMoveIndex(History *h, I64 n) {
 
 U0 HistoryInit(History *h) {
   // Init history and load old entries if available.
+
   I64 i;
   h->index = -1;
   h->head = 0;
+  h->used = 0;
 
-  for (i=0; i<HIST_MAX_ENTRIES; i++) {
-    h->buff[i] = NULL;
-  }
+  MemSet(h->seek_str, NULL, (MAX_LINE_LEN+1)*sizeof(U8));
+  MemSet(h->buff, NULL, HIST_MAX_ENTRIES*sizeof(I64));
 
   // Load previous history.
   if (FileFind(HIST_FILE_PATH)) {
     U8 *prev_hist = FileRead(HIST_FILE_PATH);
-    U8 line[HIST_MAX_LINE_LEN+1];
+    U8 line[MAX_LINE_LEN+1];
     MemSet(line, 0, sizeof(line));
 
     I64 last_newline_index = 0;
@@ -166,12 +197,46 @@ U0 HistoryFree(History *h) {
   }
 }
 
+U8 *HistorySeekPartial(History *h, U8 *line, I64 line_len) {
+  // Seeks a command in hist based off partial str.
+  // Sets hist index and returns command upon matching.
+
+  I64 i, j;
+
+  // Make line buffer a real string.
+  line[line_len] = NULL;
+
+  if (!(0 < line_len < MAX_LINE_LEN))
+    return line;
+
+  if (*h->seek_str == NULL)
+    StrCpy(h->seek_str, line);
+
+  for (i=h->index+1; i<h->used; i++) {
+    U8 *entry = HistoryGet(h, i);
+    for (j=0; j<StrLen(h->seek_str); j++) {
+      if (h->seek_str[j] != entry[j]) {
+        goto not_match;
+      }
+    }
+    // Entry matches.
+    h->index = i;
+    return entry;
+
+    not_match:
+  }
+
+  // No entries match.
+  return line;
+}
+
+
 // -------------------------------------
 // Line input
 
 U8* ReadLine(U8* prompt, I64 (*autocomplete)(U8* buffer) = NULL,
 	History *history) {
-  static U8 buf[256];
+  static U8 buf[MAX_LINE_LEN+1];
   I64 len = 0;
 
   buf[0] = 0;
@@ -182,7 +247,7 @@ show_prompt:
   "" prompt;
   "" buf;
 
-  while (len < 255) {
+  while (len < MAX_LINE_LEN) {
     I64 scan;
     I64 ch = GetKey(&scan, FALSE, FALSE);
 
@@ -195,7 +260,7 @@ show_prompt:
     else if (ch == CH_ESC) {
       len = 0;
       buf[len] = 0;
-      history->index = -1;
+      HistoryResetCursor(history);
       EdLineDel(DocPut);
       goto show_prompt;
     }
@@ -227,6 +292,12 @@ show_prompt:
       goto show_prompt;
     }
     else if (ch == 0 && scan.u8[0] == SC_CURSOR_UP) {
+        StrCpy(buf, HistorySeekPartial(history, buf, len));
+
+        len = StrLen(buf);
+        EdLineDel(DocPut);
+        goto show_prompt;
+/*
       if (HistoryMoveIndex(history, +1)) {
         StrCpy(buf, HistoryGet(history, history->index));
 
@@ -234,6 +305,7 @@ show_prompt:
         EdLineDel(DocPut);
         goto show_prompt;
       }
+*/
     }
     else if (ch == 0 && scan.u8[0] == SC_CURSOR_DOWN) {
       if (HistoryMoveIndex(history, -1)) {
@@ -546,7 +618,7 @@ Bool IsPath(U8* str) {
 }
 
 U8* Prompt() {
-  // TODO: Avoid malloc if we can rely on MAX_PATH
+  // TODO: Avoid malloc if we can rely on MAX_PATH
   static U8 buf[200];  
   U8* dir = DirCurShort();
 
@@ -637,6 +709,7 @@ U0 Lsh() {
   History history_v;
   History *history = &history_v;  
   HistoryInit(history);
+  AdamLog("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n");
 
   if (!skip_intro) {
     "$FG,8$Welcome to $FG,5$Lambda Shell$FG,8$!\n";
@@ -651,6 +724,7 @@ U0 Lsh() {
       break;
 
     HistoryPush(history, line);
+    DCFill;
 
     try {
       ParseAndExecute(line);
@@ -662,5 +736,6 @@ U0 Lsh() {
   HistorySave(history);
   HistoryFree(history);
   "$FG$\n";
+  DCFill;
 }
 
