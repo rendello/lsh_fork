@@ -1,4 +1,3 @@
-// vim: set ft=cpp:
 
 #define LAMBDA_BITMAP 0x006336363C181B0E
 #define LAMBDA "\xFB"
@@ -11,7 +10,7 @@
 #define HIST_MAX_ENTRIES	100
 
 // -------------------------------------
-//History
+// History
 /*
 $TR,"History overview"$
 $ID,2$Command history is stored as pointers to MAlloc'd
@@ -34,13 +33,12 @@ History is saved to/loaded from HIST_FILE_PATH, newest
 commands last.
 
 $ID,-2$$TR,"Relative history"$
-$ID,2$When a user already has a partial string in their line buffer,
-pressing up/down will jump to the next/last entry that starts
-with that substring.
+$ID,2$When a user has a partial string in their line buff, up/down
+will jump to the next/prev entry that starts with that
+substring.
 
-Currently, it uses a basic O(n) search for moving up and down,
-although this could be improved with a light buffering system
-that saves the indexes as integers.
+Uses a linear search for the new entries, caches the index of
+each result in `partial_index_buff`.
 
 Since moving up/down in history will necessarily replace the
 current line buffer, the `seek_str` stores the original.
@@ -53,7 +51,7 @@ Bool IsPureWhitespace(U8 *str) {
   for (i=0; i<StrLen(str); i++) {
     switch (str[i]) {
       case ' ':
-      case 31:  // Shift-space.
+      case CH_SHIFT_SPACE:
       case '\t':
         break;
       default:
@@ -73,7 +71,9 @@ class History {
   I64 head;	// Start of circular buff.
   I64 used;	// Elements filled.
   U8 *buff[HIST_MAX_ENTRIES];
+
   U8 seek_str[MAX_LINE_LEN+1];
+  I64 partial_index_buff;
 };
 
 
@@ -90,8 +90,7 @@ U8 *HistoryGet(History *h, I64 index) {
 
 U0 HistoryResetCursor(History *h) {
   h->index = -1;
-//  h->seek_str[0] = NULL;
-  MemSet(h->seek_str, NULL, (MAX_LINE_LEN+1)*sizeof(U8));
+  h->seek_str[0] = NULL;
 }
 
 U0 HistoryPush(History *h, U8 *line) {
@@ -124,7 +123,7 @@ Bool HistoryMoveIndex(History *h, I64 n) {
 
   I64 potential_index = ClampI64(h->index+n, -1, HIST_MAX_ENTRIES-1);
 
-  if (HistoryGet(h, potential_index) != NULL) {
+  if (potential_index < h->used) {
     h->index = potential_index;
     return TRUE;
   } else {
@@ -209,9 +208,6 @@ U8 *HistorySeekPartial(History *h, U8 *line, I64 line_len) {
   if (!(0 < line_len < MAX_LINE_LEN))
     return line;
 
-  if (*h->seek_str == NULL)
-    StrCpy(h->seek_str, line);
-
   for (i=h->index+1; i<h->used; i++) {
     U8 *entry = HistoryGet(h, i);
     for (j=0; j<StrLen(h->seek_str); j++) {
@@ -219,10 +215,12 @@ U8 *HistorySeekPartial(History *h, U8 *line, I64 line_len) {
         goto not_match;
       }
     }
-    // Entry matches.
-    h->index = i;
-    return entry;
 
+    if (StrLen(h->seek_str) != StrLen(entry)) {
+      // Entry matches and isn't the exact same thing.
+      h->index = i;
+      return entry;
+    }
     not_match:
   }
 
@@ -265,7 +263,7 @@ show_prompt:
       goto show_prompt;
     }
     else if (ch == CH_SHIFT_ESC) {
-      return 0;
+      return 0;
     }
     else if (ch == '\t' && autocomplete) {
       buf[len] = 0;
@@ -292,20 +290,17 @@ show_prompt:
       goto show_prompt;
     }
     else if (ch == 0 && scan.u8[0] == SC_CURSOR_UP) {
+
+      if (len == 0) {
+        if (HistoryMoveIndex(history, +1))
+          StrCpy(buf, HistoryGet(history, history->index));
+      } else {
         StrCpy(buf, HistorySeekPartial(history, buf, len));
-
-        len = StrLen(buf);
-        EdLineDel(DocPut);
-        goto show_prompt;
-/*
-      if (HistoryMoveIndex(history, +1)) {
-        StrCpy(buf, HistoryGet(history, history->index));
-
-        len = StrLen(buf);
-        EdLineDel(DocPut);
-        goto show_prompt;
       }
-*/
+
+      len = StrLen(buf);
+      EdLineDel(DocPut);
+      goto show_prompt;
     }
     else if (ch == 0 && scan.u8[0] == SC_CURSOR_DOWN) {
       if (HistoryMoveIndex(history, -1)) {
@@ -323,6 +318,9 @@ show_prompt:
         break;
 
       buf[len++] = ch;
+      if (*history->seek_str == NULL)
+        buf[len] = NULL; //Make buf a string
+        StrCpy(history->seek_str, buf);
     }
   }
   buf[len] = 0;
@@ -337,7 +335,7 @@ I64 Tokenize(U8* str, U8** tokens) {
   Bool started = FALSE;
 
   while (*str) {
-    if (*str == ' ' || *str == 31) { // 31 = shift-space.
+    if (*str == ' ' || *str == CH_SHIFT_SPACE) {
       if (started) {
         *str = 0;
         started = FALSE;
@@ -618,7 +616,7 @@ Bool IsPath(U8* str) {
 }
 
 U8* Prompt() {
-  // TODO: Avoid malloc if we can rely on MAX_PATH
+  // TODO: Avoid malloc if we can rely on MAX_PATH
   static U8 buf[200];  
   U8* dir = DirCurShort();
 
@@ -709,7 +707,6 @@ U0 Lsh() {
   History history_v;
   History *history = &history_v;  
   HistoryInit(history);
-  AdamLog("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n");
 
   if (!skip_intro) {
     "$FG,8$Welcome to $FG,5$Lambda Shell$FG,8$!\n";
