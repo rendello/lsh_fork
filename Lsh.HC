@@ -6,8 +6,9 @@
 
 #define AUTOCOMPLETE_MAX_RESULTS 15
 
-// Max history entries.
-#define HIST_MAX	30
+#define HIST_FILE_PATH		"~/LshHistory.TXT.Z"
+#define HIST_MAX_ENTRIES	30
+#define HIST_MAX_LINE_LEN	100
 
 // -------------------------------------
 // History
@@ -28,54 +29,30 @@ I64 WrapI64(I64 n, I64 max) {
   return ((n % max) + max) % max;
 }
 
-
 class History {
   I64 index;	// Temp index for user.
   I64 head;	// Start of circular buff.
-  U8 *buff[HIST_MAX];
+  U8 *buff[HIST_MAX_ENTRIES];
 };
-
-
-U0 HistoryInit(History *h) {
-  I64 i;
-  h->index = -1;
-  h->head = 0;
-  for (i=0; i<HIST_MAX; i++) {
-    h->buff[i] = NULL;
-  }
-}
-
 
 U8 *HistoryGet(History *h, I64 index) {
   if (index == -1)
     return "";
 
-  I64 i = WrapI64(h->head + index, HIST_MAX);
+  I64 i = WrapI64(h->head + index, HIST_MAX_ENTRIES);
 
   return h->buff[i];
 }
 
-
-Bool HistoryMoveIndex(History *h, I64 n) {
-  // Moves the history index up or down, stopping at the
-  // start and end of history.
-
-  I64 potential_index = ClampI64(h->index+n, -1, HIST_MAX-1);
-
-  if (HistoryGet(h, potential_index) != NULL) {
-    h->index = potential_index;
-    return TRUE;
-  } else {
-    return FALSE;
-  }
-}
-
-
 U0 HistoryPush(History *h, U8 *line) {
+  // Push entry and update history.
+  // Don't push very long lines.
 
-  if (line[0] != NULL && StrCmp(line, HistoryGet(h, 0))) {
+  if (line[0] != NULL
+    && StrCmp(line, HistoryGet(h, 0))
+    && StrLen(line) < HIST_MAX_LINE_LEN) {
 
-    I64 final_index = WrapI64(h->head - 1, HIST_MAX);
+    I64 final_index = WrapI64(h->head - 1, HIST_MAX_ENTRIES);
 
     // Free last entry in queue before it's written over.
     if (h->buff[final_index] != NULL)
@@ -89,12 +66,91 @@ U0 HistoryPush(History *h, U8 *line) {
   h->index = -1;
 }
 
+U0 HistoryInit(History *h) {
+  // Init history and load old entries if available.
+  I64 i;
+  h->index = -1;
+  h->head = 0;
+
+  for (i=0; i<HIST_MAX_ENTRIES; i++) {
+    h->buff[i] = NULL;
+  }
+
+  // Load previous history.
+  if (FileFind(HIST_FILE_PATH)) {
+    U8 *prev_hist = FileRead(HIST_FILE_PATH);
+    U8 line[HIST_MAX_LINE_LEN+1];
+    MemSet(line, 0, sizeof(line));
+
+    I64 last_newline_index = 0;
+
+    for (i=0; i<MinI64(StrLen(prev_hist),HIST_MAX_LINE_LEN); i++) {
+      if (prev_hist[i] == '\n') {
+          last_newline_index = i + 1;
+          HistoryPush(h, line);
+          MemSet(line, 0, sizeof(line));
+      } else {
+          line[i-last_newline_index] = prev_hist[i];
+      }
+    }
+  }
+}
+
+U0 HistoryFree(History *h) {
+  // Free history buffer.
+  // Note: NULL ptrs are freeable in HolyC.
+
+  I64 i;
+  for (i=0; i<HIST_MAX_ENTRIES; i++) {
+    Free(h->buff[i]);
+  }
+}
+
+U0 HistorySave(History *h) {
+  // Save history to disk.
+  I64 i;
+
+  // Get str len first so only one alloc needed.
+  // Leave room for the newlines that will be added
+  // after every line, and for the final NULL.
+  I64 hist_str_len = 1;
+  for (i=HIST_MAX_ENTRIES-1; i>=0; i--) {
+    if (h->buff[i] != NULL) {
+      hist_str_len += StrLen(h->buff[i]) + 1;
+    }
+  }
+
+  U8 *str_buff = CAlloc(hist_str_len * sizeof(U8));
+  for (i=HIST_MAX_ENTRIES-1; i>=0; i--) {
+    if (h->buff[i] != NULL) {
+      StrPrint(str_buff, "%s%s\n", str_buff, h->buff[i]);
+    }
+  }
+
+  FileWrite(HIST_FILE_PATH, str_buff, hist_str_len);
+  Free(str_buff);
+}
+
+Bool HistoryMoveIndex(History *h, I64 n) {
+  // Moves the history index up or down, stopping at the
+  // start and end of history.
+
+  I64 potential_index = ClampI64(h->index+n, -1, HIST_MAX_ENTRIES-1);
+
+  if (HistoryGet(h, potential_index) != NULL) {
+    h->index = potential_index;
+    return TRUE;
+  } else {
+    return FALSE;
+  }
+}
+
 // -------------------------------------
 // Line input
 
 U8* ReadLine(U8* prompt, I64 (*autocomplete)(U8* buffer) = NULL,
 	History *history) {
-  static U8 buf[256];
+  static U8 buf[256];
   I64 len = 0;
 
   buf[0] = 0;
@@ -110,7 +166,7 @@ show_prompt:
     I64 ch = GetKey(&scan, FALSE, FALSE);
 
     if (ch == CH_BACKSPACE) {
-      if (len > 0) {
+      if (len > 0) {
         '' CH_BACKSPACE;
         --len;
       }
@@ -582,7 +638,8 @@ U0 Lsh() {
       PutExcept();
     }
   }
-
+  HistorySave(history);
+  HistoryFree(history);
   "$FG$\n";
 }
 
