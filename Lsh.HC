@@ -45,7 +45,7 @@ current line buffer, the `seek_str` stores the original.
 
 $ID,-2$*/
 
-// TODO: ensure linebuff is always NULL-terminated str.
+// TODO: ensure linebuff is always NULL-terminated str.
 // BUG: partial history results not working correctly.
 
 Bool IsPureWhitespace(U8 *str) {
@@ -109,7 +109,6 @@ U8 *HistoryGet(History *h, I64 index) {
 U0 HistoryResetCursor(History *h) {
   h->index = -1;
   h->seek_str[0] = NULL;
-
 }
 
 U0 HistoryPush(History *h, U8 *line) {
@@ -230,6 +229,9 @@ U8 *HistorySeekPartial(History *h, U8 *line, Bool reverse=FALSE) {
         return entry;
       }
     }
+    // No entries match.
+    return line;
+
   } else {
     for (i=h->index-1; i>0; i--) {
       entry = HistoryGet(h, i);
@@ -238,10 +240,9 @@ U8 *HistorySeekPartial(History *h, U8 *line, Bool reverse=FALSE) {
         return entry;
       }
     }
+    // No entries match.
+    return h->seek_str;
   }
-
-  // No entries match.
-  return line;
 }
 
 
@@ -315,7 +316,7 @@ show_prompt:
         StrCpy(buf, HistorySeekPartial(history, buf));
       }
 
-      len = StrLen(buf);
+      len = StrLen(buf);
       EdLineDel(DocPut);
       goto show_prompt;
     }
