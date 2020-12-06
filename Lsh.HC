@@ -37,8 +37,7 @@ $ID,2$When a user has a partial string in their line buff, up/down
 will jump to the next/prev entry that starts with that
 substring.
 
-Uses a linear search for the new entries, caches the index of
-each result in `partial_index_buff`.
+Uses a linear search.
 
 Since moving up/down in history will necessarily replace the
 current line buffer, the `seek_str` stores the original.
@@ -108,7 +107,7 @@ U8 *HistoryGet(History *h, I64 index) {
 
 U0 HistoryResetCursor(History *h) {
   h->index = -1;
-  h->seek_str[0] = NULL;
+  h->seek_str[0] = \0;
 }
 
 U0 HistoryPush(History *h, U8 *line) {
@@ -306,8 +305,7 @@ show_prompt:
       EdLineDel(DocPut);
       goto show_prompt;
     }
-    else if (ch == 0 && scan.u8[0] == SC_CURSOR_UP) {
-
+    else if (ch == 0 && scan.u8[0] == SC_CURSOR_UP) {
       if (len == 0) {
         if (HistoryMoveIndex(history, +1))
           StrCpy(buf, HistoryGet(history, history->index));
@@ -316,7 +314,7 @@ show_prompt:
         StrCpy(buf, HistorySeekPartial(history, buf));
       }
 
-      len = StrLen(buf);
+      len = StrLen(buf);
       EdLineDel(DocPut);
       goto show_prompt;
     }
@@ -341,9 +339,11 @@ show_prompt:
         break;
 
       buf[len++] = ch;
-      if (*history->seek_str == NULL)
-        buf[len] = NULL; //Make buf a string
+      buf[len] = \0; //Make buf a string
+
+      if (*history->seek_str == \0) {
         StrCpy(history->seek_str, buf);
+      }
     }
   }
   buf[len] = NULL;
