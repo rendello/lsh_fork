@@ -45,6 +45,9 @@ current line buffer, the `seek_str` stores the original.
 
 $ID,-2$*/
 
+// TODO: ensure linebuff is always NULL-terminated str.
+// BUG: partial history results not working correctly.
+
 Bool IsPureWhitespace(U8 *str) {
   I64 i;
 
@@ -61,6 +64,23 @@ Bool IsPureWhitespace(U8 *str) {
   return TRUE;
 }
 
+Bool StrStartsWith(U8 *str, U8 *substr) {
+  // Str starts with substr but not the same str.
+
+  I64 i;
+  for (i=0; substr[i] != NULL; i++) {
+    if (str[i] != substr[i])
+      return FALSE;
+  }
+
+  // Same len = same str.
+  if (str[i] == NULL) {
+    return FALSE;
+  } else {
+    return TRUE;
+  }
+}
+
 I64 WrapI64(I64 n, I64 max) {
   // Wraps `n` around zero and `max`. 
   return ((n % max) + max) % max;
@@ -71,9 +91,7 @@ class History {
   I64 head;	// Start of circular buff.
   I64 used;	// Elements filled.
   U8 *buff[HIST_MAX_ENTRIES];
-
   U8 seek_str[MAX_LINE_LEN+1];
-  I64 partial_index_buff;
 };
 
 
@@ -91,6 +109,7 @@ U8 *HistoryGet(History *h, I64 index) {
 U0 HistoryResetCursor(History *h) {
   h->index = -1;
   h->seek_str[0] = NULL;
+
 }
 
 U0 HistoryPush(History *h, U8 *line) {
@@ -196,32 +215,29 @@ U0 HistoryFree(History *h) {
   }
 }
 
-U8 *HistorySeekPartial(History *h, U8 *line, I64 line_len) {
+U8 *HistorySeekPartial(History *h, U8 *line, Bool reverse=FALSE) {
   // Seeks a command in hist based off partial str.
   // Sets hist index and returns command upon matching.
 
-  I64 i, j;
+  I64 i;
+  U8 *entry;
 
-  // Make line buffer a real string.
-  line[line_len] = NULL;
-
-  if (!(0 < line_len < MAX_LINE_LEN))
-    return line;
-
-  for (i=h->index+1; i<h->used; i++) {
-    U8 *entry = HistoryGet(h, i);
-    for (j=0; j<StrLen(h->seek_str); j++) {
-      if (h->seek_str[j] != entry[j]) {
-        goto not_match;
+  if (!reverse) {
+    for (i=h->index+1; i<h->used; i++) {
+      entry = HistoryGet(h, i);
+      if (StrStartsWith(entry, h->seek_str)) {
+        h->index = i;
+        return entry;
       }
     }
-
-    if (StrLen(h->seek_str) != StrLen(entry)) {
-      // Entry matches and isn't the exact same thing.
-      h->index = i;
-      return entry;
+  } else {
+    for (i=h->index-1; i>0; i--) {
+      entry = HistoryGet(h, i);
+      if (StrStartsWith(entry, h->seek_str)) {
+        h->index = i;
+        return entry;
+      }
     }
-    not_match:
   }
 
   // No entries match.
@@ -263,7 +279,7 @@ show_prompt:
       goto show_prompt;
     }
     else if (ch == CH_SHIFT_ESC) {
-      return 0;
+      return 0;
     }
     else if (ch == '\t' && autocomplete) {
       buf[len] = 0;
@@ -295,7 +311,8 @@ show_prompt:
         if (HistoryMoveIndex(history, +1))
           StrCpy(buf, HistoryGet(history, history->index));
       } else {
-        StrCpy(buf, HistorySeekPartial(history, buf, len));
+        buf[len] = NULL;
+        StrCpy(buf, HistorySeekPartial(history, buf));
       }
 
       len = StrLen(buf);
@@ -304,12 +321,17 @@ show_prompt:
     }
     else if (ch == 0 && scan.u8[0] == SC_CURSOR_DOWN) {
       if (HistoryMoveIndex(history, -1)) {
-        StrCpy(buf, HistoryGet(history, history->index));
-
-        len = StrLen(buf);
-        EdLineDel(DocPut);
-        goto show_prompt;
+        if (len == 0) {
+          StrCpy(buf, HistoryGet(history, history->index));
+        } else {
+          buf[len] = NULL;
+          StrCpy(buf, HistorySeekPartial(history, buf, TRUE));
+        }
       }
+
+      len = StrLen(buf);
+      EdLineDel(DocPut);
+      goto show_prompt;
     }
     else if (ch) {
       '' ch;
@@ -323,9 +345,10 @@ show_prompt:
         StrCpy(history->seek_str, buf);
     }
   }
-  buf[len] = 0;
+  buf[len] = NULL;
   return buf;
 }
+
 
 // -------------------------------------
 // Parse
