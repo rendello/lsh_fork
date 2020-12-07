@@ -305,7 +305,7 @@ show_prompt:
       EdLineDel(DocPut);
       goto show_prompt;
     }
-    else if (ch == 0 && scan.u8[0] == SC_CURSOR_UP) {
+    else if (ch == 0 && scan.u8[0] == SC_CURSOR_UP) {
       if (len == 0) {
         if (HistoryMoveIndex(history, +1))
           StrCpy(buf, HistoryGet(history, history->index));
@@ -340,10 +340,8 @@ show_prompt:
 
       buf[len++] = ch;
       buf[len] = \0; //Make buf a string
-
-      if (*history->seek_str == \0) {
-        StrCpy(history->seek_str, buf);
-      }
+
+      StrCpy(history->seek_str, buf);
     }
   }
   buf[len] = NULL;
