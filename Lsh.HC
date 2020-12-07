@@ -261,8 +261,6 @@ U8* ReadLine(U8* prompt, I64 (*autocomplete)(U8* buffer) = NULL,
   buf[0] = 0;
 
 show_prompt:
-  AdamLog("%d\n", history->index);
-
   DocBottom;
   "" prompt;
   "" buf;
@@ -319,7 +317,7 @@ show_prompt:
         reverse = FALSE;
         move_index_num = 1;
       }
-      else if (scan.u8[0] == SC_CURSOR_DOWN) {
+      else if (scan.u8[0] == SC_CURSOR_DOWN) {
         reverse = TRUE;
         move_index_num = -1;
       }
@@ -736,9 +734,8 @@ U0 ParseAndExecute(U8* line) {
 U0 Lsh() {
   PatchFont();
 
-  History history_v;
-  History *history = &history_v;  
-  HistoryInit(history);
+  History history;
+  HistoryInit(&history);
 
   if (!skip_intro) {
     "$FG,8$Welcome to $FG,5$Lambda Shell$FG,8$!\n";
@@ -747,12 +744,12 @@ U0 Lsh() {
 
   while (1) {
     U8* p = Prompt();
-    U8* line = ReadLine(p, &Autocomplete, history);
+    U8* line = ReadLine(p, &Autocomplete, &history);
 
     if (!line || !StrCmp(line, "exit"))
       break;
 
-    HistoryPush(history, line);
+    HistoryPush(&history, line);
     DCFill;
 
     try {
@@ -762,9 +759,10 @@ U0 Lsh() {
       PutExcept();
     }
   }
-  HistorySave(history);
-  HistoryFree(history);
+  HistorySave(&history);
+  HistoryFree(&history);
   "$FG$\n";
   DCFill;
 }
 
+
