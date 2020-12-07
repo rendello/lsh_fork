@@ -45,7 +45,9 @@ current line buffer, the `seek_str` stores the original.
 $ID,-2$*/
 
 // TODO: ensure linebuff is always NULL-terminated str.
-// BUG: partial history results not working correctly.
+// BUG: Going down too far in HistorySeekPartial goes
+// past the orig seek_str and hits the above entry again
+
 
 Bool IsPureWhitespace(U8 *str) {
   I64 i;
@@ -220,10 +222,12 @@ U8 *HistorySeekPartial(History *h, U8 *line, Bool reverse=FALSE) {
   I64 i;
   U8 *entry;
 
+
   if (!reverse) {
     for (i=h->index+1; i<h->used; i++) {
       entry = HistoryGet(h, i);
-      if (StrStartsWith(entry, h->seek_str)) {
+      if (StrStartsWith(entry, h->seek_str)
+          && StrCmp(entry, line)) {
         h->index = i;
         return entry;
       }
@@ -234,7 +238,8 @@ U8 *HistorySeekPartial(History *h, U8 *line, Bool reverse=FALSE) {
   } else {
     for (i=h->index-1; i>0; i--) {
       entry = HistoryGet(h, i);
-      if (StrStartsWith(entry, h->seek_str)) {
+      if (StrStartsWith(entry, h->seek_str)
+          && StrCmp(entry, line)) {
         h->index = i;
         return entry;
       }
@@ -256,6 +261,7 @@ U8* ReadLine(U8* prompt, I64 (*autocomplete)(U8* buffer) = NULL,
   buf[0] = 0;
 
 show_prompt:
+  AdamLog("%d\n", history->index);
 
   DocBottom;
   "" prompt;
@@ -305,32 +311,34 @@ show_prompt:
       EdLineDel(DocPut);
       goto show_prompt;
     }
-    else if (ch == 0 && scan.u8[0] == SC_CURSOR_UP) {
-      if (len == 0) {
-        if (HistoryMoveIndex(history, +1))
+    else if (ch == 0) {
+      Bool reverse;
+      I64 move_index_num;
+
+      if (scan.u8[0] == SC_CURSOR_UP) {
+        reverse = FALSE;
+        move_index_num = 1;
+      }
+      else if (scan.u8[0] == SC_CURSOR_DOWN) {
+        reverse = TRUE;
+        move_index_num = -1;
+      }
+      else {
+        goto skip;
+      }
+
+      if (history->seek_str == 0) {
+        if (HistoryMoveIndex(history, move_index_num))
           StrCpy(buf, HistoryGet(history, history->index));
       } else {
         buf[len] = NULL;
-        StrCpy(buf, HistorySeekPartial(history, buf));
+        StrCpy(buf, HistorySeekPartial(history, buf, reverse));
       }
 
       len = StrLen(buf);
       EdLineDel(DocPut);
       goto show_prompt;
-    }
-    else if (ch == 0 && scan.u8[0] == SC_CURSOR_DOWN) {
-      if (HistoryMoveIndex(history, -1)) {
-        if (len == 0) {
-          StrCpy(buf, HistoryGet(history, history->index));
-        } else {
-          buf[len] = NULL;
-          StrCpy(buf, HistorySeekPartial(history, buf, TRUE));
-        }
-      }
-
-      len = StrLen(buf);
-      EdLineDel(DocPut);
-      goto show_prompt;
+      skip:
     }
     else if (ch) {
       '' ch;
@@ -340,10 +348,11 @@ show_prompt:
 
       buf[len++] = ch;
       buf[len] = \0; //Make buf a string
-
+
       StrCpy(history->seek_str, buf);
     }
   }
+
   buf[len] = NULL;
   return buf;
 }
@@ -652,6 +661,7 @@ U0 PatchFont() {
   U64* font = sys_font_std;
   font[LAMBDA_CHARCODE] = LAMBDA_BITMAP;
 }
+
 
 // -------------------------------------
 // Main
