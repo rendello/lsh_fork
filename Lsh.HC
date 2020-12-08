@@ -64,13 +64,13 @@ Bool StrStartsWith(U8 *str, U8 *substr) {
   // Str starts with substr but not the same str.
 
   I64 i;
-  for (i=0; substr[i] != NULL; i++) {
+  for (i=0; substr[i] != \0; i++) {
     if (str[i] != substr[i])
       return FALSE;
   }
 
   // Same len = same str.
-  if (str[i] == NULL) {
+  if (str[i] == \0) {
     return FALSE;
   } else {
     return TRUE;
@@ -89,7 +89,6 @@ class History {
   U8 *buff[HIST_MAX_ENTRIES];
   U8 seek_str[MAX_LINE_LEN+1];
 };
-
 
 U8 *HistoryGet(History *h, I64 index) {
   // Get history at index relative to head.
@@ -152,8 +151,8 @@ U0 HistoryInit(History *h) {
   h->head = 0;
   h->used = 0;
 
-  MemSet(h->seek_str, NULL, (MAX_LINE_LEN+1)*sizeof(U8));
-  MemSet(h->buff, NULL, HIST_MAX_ENTRIES*sizeof(I64));
+  MemSet(h->seek_str, 0, (MAX_LINE_LEN+1)*sizeof(U8));
+  MemSet(h->buff, 0, HIST_MAX_ENTRIES*sizeof(I64));
 
   // Load previous history.
   if (FileFind(HIST_FILE_PATH)) {
@@ -164,7 +163,7 @@ U0 HistoryInit(History *h) {
     I64 last_newline_index = 0;
 
     for (i=0; i<StrLen(prev_hist); i++) {
-      if (prev_hist[i] == '\n' || prev_hist[i+1] == NULL) {
+      if (prev_hist[i] == '\n' || prev_hist[i+1] == \0) {
           last_newline_index = i + 1;
           HistoryPush(h, line);
           MemSet(line, 0, sizeof(line));
@@ -180,19 +179,17 @@ U0 HistorySave(History *h) {
 
   I64 i;
 
-  // Get strbuff length. Save room for newlines and NULL.
+  // Get len for `str_buff`. Save room for newlines and \0.
   I64 str_buff_len = 1;
-  for (i=0; i<HIST_MAX_ENTRIES; i++) {
-    if (h->buff[i] != NULL)
-      str_buff_len += StrLen(h->buff[i]) + 1;
+  for (i=0; i<h->used; i++) {
+    str_buff_len += StrLen(HistoryGet(h, i)) + 1;
   }
 
   // Build str.
   U8 *str_buff = CAlloc(str_buff_len * sizeof(U8));
-  for (i=0; i<HIST_MAX_ENTRIES; i++) {
-    U8 *entry = HistoryGet(h, HIST_MAX_ENTRIES-(i+1));
-    if (entry != NULL)
-      StrPrint(str_buff, "%s%s\n", str_buff, entry);
+  for (i=0; i<h->used; i++) {
+    U8 *entry = HistoryGet(h, h->used-(i+1));
+    StrPrint(str_buff, "%s%s\n", str_buff, entry);
   }
 
   FileWrite(HIST_FILE_PATH, str_buff, str_buff_len);
@@ -201,7 +198,7 @@ U0 HistorySave(History *h) {
 
 U0 HistoryFree(History *h) {
   // Free history buffer.
-  // Note: NULL ptrs are freeable in HolyC.
+  // NULL ptrs are freeable in HolyC.
 
   I64 i;
   for (i=0; i<HIST_MAX_ENTRIES; i++) {
@@ -267,7 +264,7 @@ show_prompt:
         '' CH_BACKSPACE;
         --len;
 
-        buf[len] = \0;
+        buf[len] = \0;
         StrCpy(history->seek_str, buf);
       }
     }
@@ -325,7 +322,7 @@ show_prompt:
         if (HistoryMoveIndex(history, move_index_num))
           StrCpy(buf, HistoryGet(history, history->index));
       } else {
-        buf[len] = NULL;
+        buf[len] = \0;
         StrCpy(buf, HistorySeekPartial(history, buf, reverse));
       }
 
