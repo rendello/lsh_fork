@@ -3,11 +3,11 @@
 #define LAMBDA "\xFB"
 #define LAMBDA_CHARCODE 0xFB
 
-#define MAX_LINE_LEN	300
+#define MAX_LINE_LEN	255
 #define AUTOCOMPLETE_MAX_RESULTS 15
 
 #define HIST_FILE_PATH		"~/LshHistory.TXT.Z"
-#define HIST_MAX_ENTRIES	100
+#define HIST_MAX_ENTRIES	300
 
 // -------------------------------------
 // History
@@ -43,11 +43,6 @@ Since moving up/down in history will necessarily replace the
 current line buffer, the `seek_str` stores the original.
 
 $ID,-2$*/
-
-// TODO: ensure linebuff is always NULL-terminated str.
-// BUG: Going down too far in HistorySeekPartial goes
-// past the orig seek_str and hits the above entry again
-
 
 Bool IsPureWhitespace(U8 *str) {
   I64 i;
@@ -114,7 +109,6 @@ U0 HistoryResetCursor(History *h) {
 
 U0 HistoryPush(History *h, U8 *line) {
   // Push entry and update history.
-  // Don't push very long lines.
 
   if (line[0] != NULL
     && !IsPureWhitespace(line)
@@ -123,7 +117,7 @@ U0 HistoryPush(History *h, U8 *line) {
 
     I64 final_index = WrapI64(h->head - 1, HIST_MAX_ENTRIES);
 
-    // Free last entry in queue before it's written over.
+    // Free last entry in queue before it's overwritten.
     // NULL is freeable in HolyC.
     Free(h->buff[final_index]);
 
@@ -222,7 +216,6 @@ U8 *HistorySeekPartial(History *h, U8 *line, Bool reverse=FALSE) {
   I64 i;
   U8 *entry;
 
-
   if (!reverse) {
     for (i=h->index+1; i<h->used; i++) {
       entry = HistoryGet(h, i);
@@ -273,6 +266,9 @@ show_prompt:
       if (len > 0) {
         '' CH_BACKSPACE;
         --len;
+
+        buf[len] = \0;
+        StrCpy(history->seek_str, buf);
       }
     }
     else if (ch == CH_ESC) {
@@ -765,4 +761,3 @@ U0 Lsh() {
   DCFill;
 }
 
-
