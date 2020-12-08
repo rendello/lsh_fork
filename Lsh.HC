@@ -12,7 +12,7 @@
 // -------------------------------------
 // History
 /*
-$TR,"History overview"$
+$TR,"History overview"$
 $ID,2$Command history is stored as pointers to MAlloc'd
 strings in a circular buffer. This allows for efficient
 pushing of new entries, as well as simple freeing of
@@ -196,13 +196,6 @@ U8 *HistoryCycle(History *h, U8 *line, Bool reverse=FALSE) {
   I64 i;
   U8 *entry;
 
-  if (h->index == 0
-      && *h->seek_str == \0
-      && reverse) {
-    h->index = -1;
-    return "";
-  }
-
   if (!reverse) {
     for (i=h->index+1; i<h->used; i++) {
       entry = HistoryGet(h, i);
@@ -225,6 +218,7 @@ U8 *HistoryCycle(History *h, U8 *line, Bool reverse=FALSE) {
       }
     }
     // No entries match.
+    h->index = -1;
     return h->seek_str;
   }
 }
@@ -588,7 +582,7 @@ I64 Autocomplete(U8* buffer) {
   return count;
 }
 
-// -------------------------------------
+// -------------------------------------
 // Shell
 
 Bool skip_intro = FALSE;
