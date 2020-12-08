@@ -4,11 +4,12 @@
  | |___ ___) |  _  |
  |_____|____/|_| |_|
                     
-A fork of Lsh shell from minexew's TempleOS distro, Shrine.
+A fork of Lambda shell from minexew's TempleOS distro, Shrine.
 
 TempleOS Wikipedia ... https://en.wikipedia.org/wiki/TempleOS
 TempleOS website ..... https://templeos.org/
 Shrine repository .... https://github.com/minexew/Shrine
+Lsh repository ....... https://github.com/minexew/Lsh
 
 ---------------------------------------
 
