@@ -12,7 +12,7 @@
 // -------------------------------------
 // History
 /*
-$TR,"History overview"$
+$TR,"History overview"$
 $ID,2$Command history is stored as pointers to MAlloc'd
 strings in a circular buffer. This allows for efficient
 pushing of new entries, as well as simple freeing of
@@ -23,24 +23,18 @@ oldest entry is freed and then replaced with the new entry.
 The head is decremented, wrapping around to the top of
 the buffer when needed.
 
-The history `index` simply represents the offset from the
-head while the user cycles through history with up/down. It
-isn't inherent to the buffer itself, it's just a value
-that, when moved with `HistoryMoveIndex`, won't go over the
-bounds of the history. It's reset on pushing or pressing esc.
-
 History is saved to/loaded from HIST_FILE_PATH, newest
 commands last.
 
 $ID,-2$$TR,"Relative history"$
 $ID,2$When a user has a partial string in their line buff, up/down
 will jump to the next/prev entry that starts with that
-substring.
-
-Uses a linear search.
+substring using a linear search.
 
 Since moving up/down in history will necessarily replace the
-current line buffer, the `seek_str` stores the original.
+current line buffer, the `seek_str` stores the line buffer any
+time a character is typed or on backspace. It's reset after
+pushing history or resetting the line with esc.
 
 $ID,-2$*/
 
@@ -49,7 +43,7 @@ Bool IsPureWhitespace(U8 *str) {
 
   for (i=0; i<StrLen(str); i++) {
     switch (str[i]) {
-      case ' ':
+      case CH_SPACE:
       case CH_SHIFT_SPACE:
       case '\t':
         break;
@@ -62,6 +56,7 @@ Bool IsPureWhitespace(U8 *str) {
 
 Bool StrStartsWith(U8 *str, U8 *substr) {
   // Str starts with substr but not the same str.
+  // Returns TRUE if substr is empty str.
 
   I64 i;
   for (i=0; substr[i] != \0; i++) {
@@ -129,20 +124,6 @@ U0 HistoryPush(History *h, U8 *line) {
   HistoryResetCursor(h);
 }
 
-Bool HistoryMoveIndex(History *h, I64 n) {
-  // Moves the history index up or down, stopping at the
-  // start and end of history.
-
-  I64 potential_index = ClampI64(h->index+n, -1, HIST_MAX_ENTRIES-1);
-
-  if (potential_index < h->used) {
-    h->index = potential_index;
-    return TRUE;
-  } else {
-    return FALSE;
-  }
-}
-
 U0 HistoryInit(History *h) {
   // Init history and load old entries if available.
 
@@ -206,12 +187,21 @@ U0 HistoryFree(History *h) {
   }
 }
 
-U8 *HistorySeekPartial(History *h, U8 *line, Bool reverse=FALSE) {
-  // Seeks a command in hist based off partial str.
+U8 *HistoryCycle(History *h, U8 *line, Bool reverse=FALSE) {
+  // Moves up/down in history. If there's a non-empty str
+  // in `h->seek_str`, it jumps to the next/prev entry that
+  // starts with that substr.
   // Sets hist index and returns command upon matching.
 
   I64 i;
   U8 *entry;
+
+  if (h->index == 0
+      && *h->seek_str == \0
+      && reverse) {
+    h->index = -1;
+    return "";
+  }
 
   if (!reverse) {
     for (i=h->index+1; i<h->used; i++) {
@@ -226,7 +216,7 @@ U8 *HistorySeekPartial(History *h, U8 *line, Bool reverse=FALSE) {
     return line;
 
   } else {
-    for (i=h->index-1; i>0; i--) {
+    for (i=h->index-1; i>=0; i--) {
       entry = HistoryGet(h, i);
       if (StrStartsWith(entry, h->seek_str)
           && StrCmp(entry, line)) {
@@ -318,14 +308,9 @@ show_prompt:
         goto skip;
       }
 
-      if (history->seek_str == 0) {
-        if (HistoryMoveIndex(history, move_index_num))
-          StrCpy(buf, HistoryGet(history, history->index));
-      } else {
-        buf[len] = \0;
-        StrCpy(buf, HistorySeekPartial(history, buf, reverse));
-      }
-
+      buf[len] = \0;
+      StrCpy(buf, HistoryCycle(history, buf, reverse));
+ 
       len = StrLen(buf);
       EdLineDel(DocPut);
       goto show_prompt;
