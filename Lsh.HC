@@ -248,13 +248,13 @@ show_prompt:
         '' CH_BACKSPACE;
         --len;
 
-        buf[len] = \0;
+        buf[len] = \0;
         StrCpy(history->seek_str, buf);
       }
     }
     else if (ch == CH_ESC) {
       len = 0;
-      buf[len] = 0;
+      buf[len] = \0;
       HistoryResetCursor(history);
       EdLineDel(DocPut);
       goto show_prompt;
@@ -263,7 +263,7 @@ show_prompt:
       return 0;
     }
     else if (ch == '\t' && autocomplete) {
-      buf[len] = 0;
+      buf[len] = \0;
 
       // Completing path or last argument?
       U8* start = StrLastOcc(buf, " ");
@@ -323,7 +323,7 @@ show_prompt:
     }
   }
 
-  buf[len] = NULL;
+  buf[len] = \0;
   return buf;
 }
 
@@ -582,7 +582,7 @@ I64 Autocomplete(U8* buffer) {
   return count;
 }
 
-// -------------------------------------
+// -------------------------------------
 // Shell
 
 Bool skip_intro = FALSE;
