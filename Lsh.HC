@@ -18,10 +18,10 @@ strings in a circular buffer. This allows for efficient
 pushing of new entries, as well as simple freeing of
 old entries.
 
-A new entry is added right-to-left. Before it's added, the
-oldest entry is freed and then replaced with the new entry.
-The head is decremented, wrapping around to the top of
-the buffer when needed.
+A new entry is added right-to-left. The oldest entry is
+freed and then replaced with the new. The head is
+decremented, wrapping around to the top of the buffer
+when needed.
 
 History is saved to/loaded from HIST_FILE_PATH, newest
 commands last.
@@ -115,11 +115,12 @@ U0 HistoryPush(History *h, U8 *line) {
     // NULL is freeable in HolyC.
     Free(h->buff[final_index]);
 
-    // Update index and push entry.
+    // Update head and used, then push entry.
+    h->used = ClampI64(h->used+1, 0, HIST_MAX_ENTRIES);
     h->head = final_index; 
     h->buff[h->head] = MAlloc(StrLen(line)+1);
     StrCpy(h->buff[h->head], line);
-    h->used = ClampI64(h->used+1, 0, HIST_MAX_ENTRIES);
+
   }
   HistoryResetCursor(h);
 }
@@ -248,7 +249,7 @@ show_prompt:
         '' CH_BACKSPACE;
         --len;
 
-        buf[len] = \0;
+        buf[len] = \0;
         StrCpy(history->seek_str, buf);
       }
     }
@@ -737,3 +738,4 @@ U0 Lsh() {
   DCFill;
 }
 
+
