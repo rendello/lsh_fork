@@ -13,6 +13,14 @@ Lsh repository ....... https://github.com/minexew/Lsh
 
 ---------------------------------------
 
+EDIT: Lsh has its own repo now and this has been merged, see
+      below. It's also been merged into Shrine proper, but
+      since a new release hasn't happened in a while it's still
+      just on the dev branch.
+
+      >> https://github.com/minexew/Lsh <<
+
+
 Lsh is a shell for Shrine and TempleOS that aims to make using the
 command line simpler. It provides three major features:
 
